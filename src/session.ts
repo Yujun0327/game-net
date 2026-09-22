@@ -229,10 +229,16 @@ export class BeaconSession<Cfg, State, Move, Priv = undefined> {
     return creators[0] ?? all.sort()[0]
   }
 
-  /** Lobby view in seating order; the host's roster is authoritative. */
+  /** Lobby view in seating order; the host's roster is authoritative until the game seats everyone. */
   get players(): LobbyPlayer[] {
     const host = this.hostKey
-    const keys = this.isHost ? this.ownRoster() : (this.hostRoster ?? [this.myKey])
+    const keys = this.snapshot
+      ? Object.entries(this.snapshot.seats)
+          .sort((a, b) => a[1] - b[1])
+          .map(([k]) => k)
+      : this.isHost
+        ? this.ownRoster()
+        : (this.hostRoster ?? [this.myKey])
     return keys.map((key) => {
       if (key === this.myKey) {
         return { key, name: this.name, ready: this.ready, connected: true, host: key === host, self: true }

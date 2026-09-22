@@ -145,6 +145,17 @@ describe('lobby', () => {
     expect(w.sessions[4].players.length).toBe(4)
   })
 
+  it('lists the seated players in seat order once the game exists', () => {
+    const w = new World()
+    const sessions = w.start(3)
+    const spec = w.add(9)
+    w.second(2)
+    for (const s of [...sessions, spec]) {
+      expect(s.players.map((p) => p.key)).toEqual(['key-0', 'key-1', 'key-2'])
+    }
+    expect(spec.players.some((p) => p.self)).toBe(false)
+  })
+
   it('a name change reaches everyone', () => {
     const w = new World()
     const host = w.add(0, true)
