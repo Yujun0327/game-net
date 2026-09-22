@@ -13,6 +13,8 @@ export interface Transport<M = unknown> {
   close(): void
   /** Number of currently-open channels. */
   channelCount(): number
+  /** Every channel with its current state, for diagnostics screens. */
+  channels(): { url: string; up: boolean }[]
   /** Nudge any dropped channels to reconnect right now. */
   wake(): void
 }
@@ -137,6 +139,11 @@ export function connectMqtt<M = unknown>(opts: MqttOptions): Transport<M> {
       for (const client of clients) client.end(true)
     },
     channelCount: () => clients.filter((c) => c.connected).length,
+    channels: () =>
+      clients.map((c, i) => {
+        const b = brokers[i]
+        return { url: typeof b === 'string' ? b : b.url, up: c.connected }
+      }),
     wake: () => {
       for (const client of clients) {
         if (client.connected) continue

@@ -48,5 +48,7 @@ export interface Beacon<Cfg, Move> {
   wantRematch: boolean
   /** Seating order (keys), sent only by whoever believes they host the lobby. */
   roster: string[] | null
+  /** Game-defined payload (lobby options, chat…) merged by the game, not the core. */
+  extra: unknown
   game: WireGame<Cfg, Move> | null
 }

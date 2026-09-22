@@ -33,6 +33,8 @@ const core = new BeaconSession(adapter, {
   brokers: brokersFromEnv(import.meta.env),
 })
 core.subscribe(() => rerender())
+// core.setExtra(payload) rides game-defined data (lobby picks, chat) on every beacon;
+// adapter.orderSeats(players, prev) chooses sides at start and on rematch.
 ```
 
 Wrap the core in a Svelte class that bumps a `$state` revision counter in `subscribe` and reads

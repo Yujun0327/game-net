@@ -1,4 +1,5 @@
 import type { Beacon, GameSnapshot, Seat, WireGame, WireMove } from './protocol'
+export type { GameSnapshot } from './protocol'
 import { localKV, type KV } from './storage'
 import { connectMqtt, type Broker, type Transport } from './transport'
 
@@ -26,6 +27,12 @@ export interface GameAdapter<Cfg, State, Move, Priv = undefined> {
   /** Whose decision it is right now (turn-holder sequencing). */
   actor(state: State): Seat
   isOver(state: State): boolean
+  /**
+   * Host-side seating: reorder `players` (given in lobby order) before seats
+   * are assigned by index. `prev` is the finished game on a rematch, so a
+   * game can swap sides or randomize. Default: lobby order, unchanged.
+   */
+  orderSeats?<P extends { key: string; name: string }>(players: P[], prev: GameSnapshot<Cfg, Move> | null): P[]
   /**
    * The seat a move by `seat` is recorded under, or null to reject it.
    * Default: only the current actor may move, as itself. Override to allow
@@ -55,6 +62,8 @@ export interface Peer {
   gameId: string | null
   haveSeq: number
   haveBase: number
+  /** Their latest game-defined payload. */
+  extra: unknown
 }
 
 export interface LobbyPlayer {
@@ -123,6 +132,8 @@ export class BeaconSession<Cfg, State, Move, Priv = undefined> {
   name: string
   ready = false
   wantRematch = false
+  /** Game-defined payload carried in our beacons (see `setExtra`). */
+  extra: unknown = undefined
   status: Status = 'connecting'
   state: State
   priv: Priv | undefined
@@ -294,9 +305,27 @@ export class BeaconSession<Cfg, State, Move, Priv = undefined> {
     this.notify()
   }
 
+  /** Attach a game-defined payload to our beacons and announce it now. */
+  setExtra(extra: unknown): void {
+    this.extra = extra
+    this.sendBeacon()
+    this.notify()
+  }
+
+  /** Live peers (beacon heard recently), in arrival order. */
+  get livePeers(): Peer[] {
+    return [...this.peers.values()].filter((p) => this.isLive(p)).sort((a, b) => a.firstSeen - b.firstSeen)
+  }
+
+  /** Broker/channel status for diagnostics. */
+  channels(): { url: string; up: boolean }[] {
+    return this.transport.channels()
+  }
+
   startGame(): void {
     if (!this.canStart) return
-    const players = this.players.map((p) => ({ key: p.key, name: p.name }))
+    const lobby = this.players.map((p) => ({ key: p.key, name: p.name }))
+    const players = this.adapter.orderSeats ? this.adapter.orderSeats(lobby, null) : lobby
     const cfg = this.adapter.makeConfig(players, null)
     const seats: Record<string, Seat> = {}
     players.forEach((p, i) => (seats[p.key] = i))
@@ -417,6 +446,7 @@ export class BeaconSession<Cfg, State, Move, Priv = undefined> {
       ready: this.ready,
       wantRematch: this.wantRematch,
       roster: !this.started && this.isHost ? (this.hostRoster = this.ownRoster()) : null,
+      extra: this.extra,
       game: this.snapshot ? this.wireGame(this.snapshot) : null,
     })
   }
@@ -451,6 +481,7 @@ export class BeaconSession<Cfg, State, Move, Priv = undefined> {
       gameId: b.game?.gameId ?? null,
       haveSeq: b.game?.logLen ?? 0,
       haveBase: b.game?.logBase ?? 0,
+      extra: b.extra,
     }
     this.peers.set(b.key, peer)
     if (!prev || !wasLive) {
@@ -533,16 +564,19 @@ export class BeaconSession<Cfg, State, Move, Priv = undefined> {
 
   private startRematch(): void {
     if (!this.snapshot) return
-    const players = Object.entries(this.snapshot.seats)
+    const seated = Object.entries(this.snapshot.seats)
       .sort((a, b) => a[1] - b[1])
       .map(([key]) => ({ key, name: this.nameOf(key) }))
+    const players = this.adapter.orderSeats ? this.adapter.orderSeats(seated, this.snapshot) : seated
     const cfg = this.adapter.makeConfig(players, this.snapshot.cfg)
+    const seats: Record<string, Seat> = {}
+    players.forEach((p, i) => (seats[p.key] = i))
     this.adopt({
       gameId: this.newGameId(),
       createdAt: Math.max(this.now(), this.snapshot.createdAt + 1),
       cfg,
       hostKey: this.myKey,
-      seats: this.snapshot.seats,
+      seats,
       log: [],
     })
     this.log(`rematch: game ${this.snapshot!.gameId}`)

@@ -56,6 +56,9 @@ class MeshPeer<M> implements Transport<M> {
   channelCount(): number {
     return 1
   }
+  channels(): { url: string; up: boolean }[] {
+    return [{ url: 'mesh', up: true }]
+  }
   wake(): void {}
   deliver(msg: M): void {
     for (const fn of this.handlers) fn(msg)

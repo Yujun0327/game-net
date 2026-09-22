@@ -337,6 +337,59 @@ describe('rematch', () => {
   })
 })
 
+describe('extras and seating', () => {
+  it('carries a game-defined payload to every peer', () => {
+    const w = new World()
+    const host = w.add(0, true)
+    const b = w.add(1)
+    w.second()
+    host.setExtra({ pick: 'night' })
+    w.flush()
+    expect(b.peers.get('key-0')?.extra).toEqual({ pick: 'night' })
+    expect(b.livePeers.map((p) => p.key)).toEqual(['key-0'])
+    expect(b.channels()).toEqual([{ url: 'mesh', up: true }])
+  })
+
+  it('lets the adapter reorder seats at start and on rematch', () => {
+    const w = new World()
+    const swap = {
+      ...tally,
+      orderSeats: <P,>(players: P[]) => [...players].reverse(),
+    }
+    const host = new BeaconSession(swap, {
+      room: 'ROOM',
+      creator: true,
+      identity: { key: 'key-0', name: 'P0' },
+      transport: w.mesh.peer('peer-0'),
+      kv: w.kv,
+      now,
+      timers: false,
+      log: () => {},
+    })
+    w.sessions.push(host as unknown as S)
+    const guest = w.add(1)
+    w.second()
+    for (const s of w.sessions) s.setReady(true)
+    w.flush()
+    host.startGame()
+    w.flush()
+    expect(host.seat).toBe(1) // reversed lobby order
+    expect(guest.seat).toBe(0)
+    expect(host.cfg?.names).toEqual(['P1', 'P0'])
+
+    for (let i = 0; i < 6; i++) {
+      const a = w.sessions.find((s) => s.seat === s.state.turn)!
+      a.submit({ add: 1 })
+      w.second()
+    }
+    host.requestRematch()
+    w.second(2)
+    expect(host.seat).toBe(0) // reversed again
+    expect(guest.seat).toBe(1)
+    expect(guest.cfg?.names).toEqual(['P0', 'P1'])
+  })
+})
+
 describe('versions', () => {
   it('flags a rules mismatch instead of playing', () => {
     const w = new World()
