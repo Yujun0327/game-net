@@ -94,7 +94,7 @@ Deno.serve(async (req) => {
     case 'hello': {
       const { name, ts: mts } = parsed as { name: string; ts: number }
       if (typeof name !== 'string' || Math.abs(Date.now() - mts) > 300_000) return fail('bad hello')
-      const { data, error } = await supabase.rpc('ledger_hello', { p_id: player, p_name: name })
+      const { data, error } = await supabase.rpc('ledger_hello', { p_id: player, p_name: name, p_grant: STARTING_GRANT })
       if (error) return fail(error.message, 500)
       return json({ ok: true, status: 'ok', balance: data.balance, trophies: data.trophies, name: data.name })
     }

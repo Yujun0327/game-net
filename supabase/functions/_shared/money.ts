@@ -46,7 +46,7 @@ export const MONEY_RULES: Record<string, MoneyRule> = {
     minSeats: 2,
     maxSeats: 3,
   },
-  seotda: { table: { buyIns: [20000, 50000, 100000] }, trophies: { bet: 20 }, minMoves: 12, minSeats: 2, maxSeats: 5 },
+  seotda: { table: { buyIns: [5000, 10000, 20000, 50000, 100000] }, trophies: { bet: 20 }, minMoves: 12, minSeats: 2, maxSeats: 5 },
 }
 
 export const DAILY_CASH = 1000
@@ -56,7 +56,7 @@ export const DAILY_CASH = 1000
  * rebalance (table buy-ins are larger than a day's cash); not applied
  * anywhere yet — the ledger still opens every account at 0.
  */
-export const STARTING_GRANT = 0
+export const STARTING_GRANT = 50000
 
 export const CAPS = {
   /** Rewarded games per player per KST day. */
