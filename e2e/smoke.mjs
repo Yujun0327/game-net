@@ -86,9 +86,13 @@ try {
     if (await call(s.page, 'h.isHost')) host = s
   }
   if (!host) throw new Error('no client believes it is host')
-  await until(host.page, 'h.canStart', 10_000, 'host cannot start')
-  await call(host.page, 'h.startGame()')
   const t1 = Date.now()
+  const autoStarted = await call(host.page, 's.playing')
+  if (autoStarted) console.log('      (game auto-started when the table filled)')
+  else {
+    await until(host.page, 'h.canStart', 10_000, 'host cannot start')
+    await call(host.page, 'h.startGame()')
+  }
   for (const s of sides) await until(s.page, 's.playing', 20_000, `${s.name}: never reached the game`)
   console.log(`PASS  start: host ${host.name}, all ${PLAYERS} playing  (${((Date.now() - t1) / 1000).toFixed(1)}s)`)
 
