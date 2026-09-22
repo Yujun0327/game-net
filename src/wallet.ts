@@ -1,7 +1,7 @@
 import { canonicalize } from './canonical'
 import { type Identity } from './identity'
 import { Ledger } from './ledger'
-import { computeDeltas, MONEY_RULES, modesFor, validateSettlement, type Delta, type Mode } from './money'
+import { computeDeltas, MONEY_RULES, modesFor, validateSettlement, type Delta, type Mode, type Settlement } from './money'
 import type { Attestation } from './protocol'
 import { BeaconSession } from './session'
 import { buildLock, buildSettlement, signLock, signSettlement } from './settlement'
@@ -137,11 +137,23 @@ export class WalletSession<Cfg, State, Move, Priv> {
     }, 30_000)
   }
 
-  private async settle(): Promise<void> {
+  /**
+   * The settlement as this client sees it — identical on every seat because
+   * it is built only from the shared snapshot and the adapter's pure
+   * functions (winners, payouts, hash).
+   */
+  private buildSettlement(): Settlement {
     const core = this.core
     const snap = core.snapshot!
     const winners = core.adapter.winners?.(core.state) ?? []
-    const settlement = buildSettlement(snap, this.app, this.mode!, this.stake, winners, core.adapter.hash(core.state))
+    const payouts = core.adapter.payouts?.(core.state, snap.cfg)
+    return buildSettlement(snap, this.app, this.mode ?? 'casual', this.stake, winners, core.adapter.hash(core.state), payouts)
+  }
+
+  private async settle(): Promise<void> {
+    const core = this.core
+    const snap = core.snapshot!
+    const settlement = this.buildSettlement()
     const problem = validateSettlement(settlement, this.now())
     if (problem) {
       this.payout = { ...this.payout, status: 'rejected', error: problem }
@@ -157,12 +169,8 @@ export class WalletSession<Cfg, State, Move, Priv> {
 
   private async postSettle(attest: Attestation, msg?: string): Promise<void> {
     const core = this.core
-    const snap = core.snapshot!
-    if (!msg) {
-      // rebuilt after a reload: recompute the exact same canonical settlement
-      const winners = core.adapter.winners?.(core.state) ?? []
-      msg = canonicalize(buildSettlement(snap, this.app, this.mode ?? 'casual', this.stake, winners, core.adapter.hash(core.state)))
-    }
+    // rebuilt after a reload: recompute the exact same canonical settlement
+    if (!msg) msg = canonicalize(this.buildSettlement())
     const reply = await this.ledger.settle(this.identity, msg, attest.sig)
     if (!reply.ok) {
       this.payout = { ...this.payout, status: 'rejected', error: reply.error ?? 'settle failed' }
@@ -192,9 +200,7 @@ export class WalletSession<Cfg, State, Move, Priv> {
     const core = this.core
     let mine: Delta | undefined = deltas?.find((d) => d.player === this.identity.id)
     if (!mine && status === 'settled' && core.snapshot) {
-      const winners = core.adapter.winners?.(core.state) ?? []
-      const s = buildSettlement(core.snapshot, this.app, this.mode ?? 'casual', this.stake, winners, core.adapter.hash(core.state))
-      mine = computeDeltas(s, { escrowed: true, overCap: false }).find((d) => d.player === this.identity.id)
+      mine = computeDeltas(this.buildSettlement(), { escrowed: true, overCap: false }).find((d) => d.player === this.identity.id)
     }
     this.payout = { ...this.payout, status, cash: mine?.cash ?? 0, trophies: mine?.trophies ?? 0 }
     this.notify()

@@ -3,6 +3,10 @@ import { sign, type Identity } from './identity'
 import type { Mode, Settlement } from './money'
 import type { GameSnapshot } from './protocol'
 
+/**
+ * The settlement every seat signs. `payouts` (table games) switches the
+ * record to v 2; casual and classic bet games stay on v 1.
+ */
 export function buildSettlement<Cfg, Move>(
   snapshot: GameSnapshot<Cfg, Move>,
   app: string,
@@ -10,9 +14,10 @@ export function buildSettlement<Cfg, Move>(
   stake: number,
   winners: number[],
   finalHash: string,
+  payouts?: number[],
 ): Settlement {
-  return {
-    v: 1,
+  const s: Settlement = {
+    v: payouts ? 2 : 1,
     gameId: snapshot.gameId,
     app,
     mode,
@@ -25,6 +30,8 @@ export function buildSettlement<Cfg, Move>(
       .sort((a, b) => a.seat - b.seat),
     winners: [...winners].sort((a, b) => a - b),
   }
+  if (payouts) s.payouts = [...payouts]
+  return s
 }
 
 export function settlementId(s: Settlement): string {

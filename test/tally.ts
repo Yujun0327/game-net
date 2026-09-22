@@ -52,3 +52,27 @@ export const tally: GameAdapter<Cfg, State, Move, string> = {
     return s.totals.map((t, i) => (t === best ? i : -1)).filter((i) => i >= 0)
   },
 }
+
+/**
+ * The same toy game played as a zero-sum table: every seat buys in for
+ * `stake`, and the final totals decide a net payout per seat (10 per point
+ * above / below the table mean, remainder to the lowest seat) — a copy so
+ * the casual adapter above stays untouched.
+ */
+export const tallyTable: GameAdapter<Cfg, State, Move, string> = {
+  ...tally,
+  app: 'tallytable',
+  stake: () => 100,
+  payouts: (s) => {
+    const n = s.totals.length
+    const sum = s.totals.reduce((a, b) => a + b, 0)
+    const raw = s.totals.map((t) => t * n * 10 - sum * 10)
+    const p = raw.map((x) => Math.trunc(x / n))
+    p[0] -= p.reduce((a, b) => a + b, 0)
+    return p
+  },
+  winners: (s) => {
+    const p = tallyTable.payouts!(s, { playerCount: s.totals.length, names: [], seed: 0 })
+    return p.map((x, i) => (x > 0 ? i : -1)).filter((i) => i >= 0)
+  },
+}

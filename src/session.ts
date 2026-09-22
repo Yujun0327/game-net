@@ -38,6 +38,12 @@ export interface GameAdapter<Cfg, State, Move, Priv = undefined> {
   /** The stake this game was configured with (bet games), 0 or undefined for casual. */
   stake?(cfg: Cfg): number
   /**
+   * Table games (zero-sum, see MoneyRule.table): net cash per seat, indexed
+   * by seat, summing to zero and never below -stake. `winners` must then be
+   * exactly the seats with a positive payout.
+   */
+  payouts?(state: State, cfg: Cfg): number[]
+  /**
    * The seat a move by `seat` is recorded under, or null to reject it.
    * Default: only the current actor may move, as itself. Override to allow
    * off-turn moves such as conceding.

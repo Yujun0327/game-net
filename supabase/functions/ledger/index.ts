@@ -6,7 +6,7 @@ import * as ed from '@noble/ed25519'
 import { sha512 } from '@noble/hashes/sha2.js'
 import { createClient } from '@supabase/supabase-js'
 import { canonicalize, DOMAIN, signedBytes, type Domain } from '../_shared/canonical.ts'
-import { CAPS, DAILY_CASH, MONEY_RULES, computeDeltas, validateSettlement, type Settlement } from '../_shared/money.ts'
+import { CAPS, DAILY_CASH, MONEY_RULES, computeDeltas, losersOf, stakesFor, validateSettlement, type Settlement } from '../_shared/money.ts'
 
 ed.etc.sha512Sync = (...m: Uint8Array[]) => sha512(ed.etc.concatBytes(...m))
 
@@ -109,7 +109,7 @@ Deno.serve(async (req) => {
     case 'lock': {
       const l = parsed as { v: number; gameId: string; app: string; stake: number; players: string[] }
       const rule = MONEY_RULES[l.app]
-      if (l.v !== 1 || !rule || !rule.stakes?.includes(l.stake)) return fail('bad lock')
+      if (l.v !== 1 || !rule || !stakesFor(l.app).includes(l.stake)) return fail('bad lock')
       if (!Array.isArray(l.players) || !l.players.includes(player) || new Set(l.players).size !== l.players.length) return fail('bad lock players')
       if (l.players.length < rule.minSeats || l.players.length > rule.maxSeats) return fail('bad lock seats')
       const { data, error } = await supabase.rpc('ledger_lock', {
@@ -128,12 +128,14 @@ Deno.serve(async (req) => {
       const problem = validateSettlement(s, Date.now())
       if (problem) return fail(problem)
       if (!s.seats.some((x) => x.player === player)) return fail('not seated')
+      // deltas assume the escrow is in place and no cap is hit; SQL decides the rest
       const deltas = computeDeltas(s, { escrowed: true, overCap: false })
       const { data, error } = await supabase.rpc('ledger_settle', {
         p_id: player,
         p_sig: sig,
         p_settlement: s,
         p_deltas: deltas,
+        p_losers: losersOf(s),
         p_cap_games: CAPS.rewardedGamesPerDay,
         p_cap_seat_set: CAPS.perSeatSetPerDay,
         p_loser_age: `${Math.round(CAPS.loserAccountAgeMs / 3_600_000)} hours`,

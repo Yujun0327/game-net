@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { memoryKV } from '../src/kv'
 import { canonicalize, sha256hex } from '../src/canonical'
 import { exportSeed, identityFromSeed, importSeed, loadIdentity, sign, verify, type Identity } from '../src/identity'
-import { computeDeltas, validateSettlement, type Settlement } from '../src/money'
+import { computeDeltas, losersOf, modesFor, stakesFor, validateSettlement, type Settlement } from '../src/money'
 import { BeaconSession } from '../src/session'
 import { Mesh } from '../src/mesh'
 import { Ledger, type LedgerReply } from '../src/ledger'
 import { WalletSession } from '../src/wallet'
-import { tally, type Cfg, type Move, type State } from './tally'
+import { tally, tallyTable, type Cfg, type Move, type State } from './tally'
 
 describe('canonical', () => {
   it('sorts keys, keeps arrays, rejects floats and undefined', () => {
@@ -80,6 +80,43 @@ describe('money rules', () => {
     expect(odd.map((x) => x.cash)).toEqual([0, 150, 150])
     expect(computeDeltas(s, { escrowed: false, overCap: false }).every((x) => x.cash === 0)).toBe(true)
     expect(computeDeltas(s, { escrowed: true, overCap: true }).every((x) => x.cash === 0)).toBe(true)
+  })
+  const table = (over: Partial<Settlement> = {}) =>
+    settlement({ v: 2, app: 'gostop', mode: 'bet', stake: 5000, payouts: [3000, -1000, -2000], winners: [0], ...over })
+  it('table games: zero-sum payouts bounded by the stake, winners = seats paid', () => {
+    expect(modesFor('gostop')).toEqual(['bet'])
+    expect(stakesFor('gostop')).toEqual([5000, 25000, 50000])
+    expect(validateSettlement(table(), now)).toBeNull()
+    expect(validateSettlement(table({ v: 1 }), now)).toBe('bad version')
+    expect(validateSettlement(table({ payouts: undefined }), now)).toBe('table: payouts must cover every seat')
+    expect(validateSettlement(table({ payouts: [3000, -1000] }), now)).toBe('table: payouts must cover every seat')
+    expect(validateSettlement(table({ payouts: [3000, -1000, -1000] }), now)).toBe('table: payouts must sum to zero')
+    expect(validateSettlement(table({ payouts: [7000, -1000, -6000] }), now)).toBe('table: loss exceeds stake')
+    expect(validateSettlement(table({ payouts: [3000.5, -1000.5, -2000] }), now)).toBe('table: payouts must be integers')
+    expect(validateSettlement(table({ winners: [1] }), now)).toBe('table: winners must be the seats paid')
+    expect(validateSettlement(table({ winners: [] }), now)).toBe('table: winners must be the seats paid')
+    expect(validateSettlement(table({ payouts: [2000, 1000, -3000], winners: [0, 1] }), now)).toBeNull()
+    expect(validateSettlement(table({ payouts: [0, 0, 0], winners: [] }), now)).toBeNull()
+    expect(validateSettlement(table({ stake: 7000 }), now)).toBe('stake not allowed')
+    expect(validateSettlement(table({ mode: 'casual', stake: 0 }), now)).toBe('casual not allowed')
+    expect(validateSettlement(table({ app: 'seotda', stake: 20000, logLen: 20 }), now)).toBeNull()
+    expect(validateSettlement(table({ seats: [0, 1, 2, 3].map((seat) => ({ player: ids[seat].id, seat })) }), now)).toBe('bad seat count')
+    // non-table games must not carry payouts, and v 2 is reserved for tables
+    expect(validateSettlement(settlement({ payouts: [300, 0, 0] }), now)).toBe('payouts only for table games')
+    expect(validateSettlement(settlement({ v: 2 }), now)).toBe('bad version')
+    expect(validateSettlement(settlement({ app: 'yachtnight', mode: 'bet', stake: 100 }), now)).toBeNull()
+  })
+  it('table deltas: escrowed stake back plus the net; a cap returns the stake; void moves nothing', () => {
+    const d = computeDeltas(table(), { escrowed: true, overCap: false })
+    expect(d.map((x) => x.cash)).toEqual([8000, 4000, 3000])
+    expect(d.map((x) => x.trophies)).toEqual([20, 0, 0])
+    const capped = computeDeltas(table(), { escrowed: true, overCap: true })
+    expect(capped.map((x) => x.cash)).toEqual([5000, 5000, 5000])
+    expect(capped.map((x) => x.trophies)).toEqual([0, 0, 0])
+    expect(computeDeltas(table(), { escrowed: false, overCap: false }).every((x) => x.cash === 0 && x.trophies === 0)).toBe(true)
+    expect(losersOf(table())).toEqual([ids[1].id, ids[2].id])
+    expect(losersOf(table({ payouts: [0, 0, 0], winners: [] }))).toEqual([])
+    expect(losersOf(settlement({ app: 'yachtnight', mode: 'bet', stake: 100, winners: [0, 2] }))).toEqual([ids[1].id])
   })
   it('coop: everyone or nobody', () => {
     const two = [0, 1].map((seat) => ({ player: ids[seat].id, seat }))
@@ -182,5 +219,72 @@ describe('wallet session', () => {
     b.wallet.destroy()
     void ({} as State)
     void ({} as Cfg)
+  })
+
+  it('table game: locks the buy-in, then both seats sign one v2 settlement carrying payouts', async () => {
+    const mesh = new Mesh<never>()
+    const ledger = new FakeLedger()
+    const { MONEY_RULES } = await import('../src/money')
+    MONEY_RULES.tallytable = { table: { buyIns: [100] }, trophies: { bet: 20 }, minMoves: 6, minSeats: 2, maxSeats: 4 }
+    const mk = (i: number, creator = false) => {
+      const core = new BeaconSession(tallyTable, {
+        room: 'TROOM',
+        creator,
+        identity: { key: ids[i].id, name: `P${i}` },
+        transport: mesh.peer(`tpeer-${i}`),
+        kv: memoryKV(),
+        now,
+        timers: false,
+        log: () => {},
+      })
+      return { core, wallet: new WalletSession(core, 'tallytable', ids[i], ledger, now) }
+    }
+    const a = mk(0, true)
+    const b = mk(1)
+    const step = () => {
+      clock += 1000
+      a.core.tick()
+      b.core.tick()
+      mesh.flush()
+    }
+    step()
+    step()
+    a.core.setReady(true)
+    b.core.setReady(true)
+    mesh.flush()
+    a.core.startGame()
+    mesh.flush()
+    expect(a.wallet.mode).toBe('bet')
+    expect(a.wallet.stake).toBe(100)
+    await new Promise((r) => setTimeout(r, 10))
+    expect(ledger.posts.filter((p) => p.action === 'lock').map((p) => p.player).sort()).toEqual([ids[0].id, ids[1].id].sort())
+    expect(a.wallet.lock.status).toBe('locked')
+    for (let i = 0; i < 6; i++) {
+      const actor = [a, b].find((x) => x.core.seat === x.core.state.turn)!
+      actor.core.submit({ add: actor.core.seat === 0 ? 2 : 1 } as Move)
+      step()
+    }
+    expect(a.core.state.over).toBe(true)
+    await new Promise((r) => setTimeout(r, 10))
+    step()
+    expect(a.wallet.payout.error).toBeUndefined()
+    expect(b.wallet.payout.error).toBeUndefined()
+    const settles = ledger.posts.filter((p) => p.action === 'settle')
+    expect(settles.length).toBe(2)
+    expect(settles[0].msg).toBe(settles[1].msg)
+    const s = JSON.parse(settles[0].msg) as Settlement
+    expect(s.v).toBe(2)
+    expect(s.mode).toBe('bet')
+    expect(s.stake).toBe(100)
+    expect(s.payouts).toEqual([15, -15]) // totals 6 vs 3, mean 4.5 → ±1.5 points × 10
+    expect(s.winners).toEqual([0])
+    expect(validateSettlement(s, now())).toBeNull()
+    expect(ledger.settled.get(a.core.snapshot!.gameId)?.status).toBe('settled')
+    await new Promise((r) => setTimeout(r, 10))
+    // the FakeLedger reports no deltas, so finish() falls back to computeDeltas with payouts
+    if (a.wallet.payout.status === 'settled') expect(a.wallet.payout.cash).toBe(115)
+    if (b.wallet.payout.status === 'settled') expect(b.wallet.payout.cash).toBe(85)
+    a.wallet.destroy()
+    b.wallet.destroy()
   })
 })

@@ -13,7 +13,7 @@ export {
   verify,
 } from './identity'
 export type { Identity } from './identity'
-export { CAPS, DAILY_CASH, MONEY_RULES, computeDeltas, modesFor, validateSettlement } from './money'
+export { CAPS, DAILY_CASH, STARTING_GRANT, MONEY_RULES, computeDeltas, isTableGame, losersOf, modesFor, stakesFor, validateSettlement } from './money'
 export type { Delta, Mode, MoneyRule, Settlement } from './money'
 export { buildLock, buildSettlement, settlementId, signLock, signSettlement } from './settlement'
 export type { LockMsg } from './settlement'

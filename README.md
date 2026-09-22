@@ -59,8 +59,9 @@ moments touch the server: `hello` (name), `claim` (1,000/day, KST), and settleme
 - `identity.ts` — one Ed25519 keypair per browser (`yujungame:identity`), the public key is
   the player id everywhere. `exportSeed`/`importSeed` = the link code between devices.
 - `canonical.ts` — sorted-key JSON; signatures are over `<domain>\n<canonical>`.
-- `money.ts` — THE rules table (`MONEY_RULES`, `DAILY_CASH`, `CAPS`) and `computeDeltas`.
-  Shared with the Edge Function via `npm run sync-shared` (the test suite checks the copies).
+- `money.ts` — THE rules table (`MONEY_RULES`, `DAILY_CASH`, `STARTING_GRANT`, `CAPS`) and
+  `computeDeltas`. Shared with the Edge Function via `npm run sync-shared` (the test suite checks
+  the copies).
 - `wallet.ts` — `WalletSession` attaches to a `BeaconSession`: locks the stake when a bet game
   starts, signs + posts its own settlement when the game ends, polls until settled.
 - `supabase/` — migration (tables, RLS, SQL functions) and the `ledger` Edge Function.
@@ -70,5 +71,34 @@ spoken (one transaction, advisory lock per game). Threat model: casual cheating 
 modified client cannot invent a result because honest peers only sign what they computed; self-play
 is bounded by `CAPS`, not proofs.
 
+### Settlement shapes
+
+| rule | mode | who locks | what the ledger pays on `settled` |
+|---|---|---|---|
+| `casual: N` | casual | nobody | winners +N cash, `trophies.casual` |
+| `stakes: [...]` | bet | every seat (stake) | winners split the pot; losers 0; `trophies.bet` |
+| `table: { buyIns }` | bet | every seat (buy-in) | every seat gets its buy-in back **plus** its net `payouts[seat]` |
+
+Table games (gostop, seotda, added in 0.4.0) are zero-sum: the game itself computes the money
+result. Their settlement is `v: 2` and carries `payouts`, validated on both sides:
+
+- `stake ∈ table.buyIns`, `payouts.length === seats`, safe integers, `Σ payouts === 0`,
+  `payouts[i] >= -stake` (nobody loses more than the buy-in);
+- `winners` must be exactly the seats with `payouts > 0` (empty only when every payout is 0);
+- casual / classic-bet settlements stay `v: 1` and must not carry `payouts`.
+
+`computeDeltas` for a table game returns `stake + payouts[i]` per seat (the escrow is consumed
+in the same transaction, so the balance moves by the net); a daily/table cap still returns
+every escrowed stake — a stake is never lost to a cap. `table.pointValues` / `capPoints` are
+informational for the game UI (cash per point, parallel to `buyIns`).
+
+What a table game's `GameAdapter` implements: `stake(cfg)` (the chosen buy-in), `payouts(state,
+cfg)` (seat-indexed net cash, sum 0, `>= -stake`) and `winners(state)` (the seats with a positive
+payout). All three must be pure functions of the shared state so every seat signs the identical
+settlement.
+
 Deploy: `supabase link --project-ref <ref> && supabase db push && supabase functions deploy ledger`,
-then put the project URL + anon key in `src/ledger-config.ts`.
+then put the project URL + anon key in `src/ledger-config.ts`. Smoke-test a deployed ledger with
+`node --experimental-strip-types supabase/scripts/ledger-smoke.mjs --url=… --key=… --prepare`
+(`--prepare` funds the table seats through the linked CLI; `supabase/scripts/smoke-clean.sql`
+removes the smoke rows afterwards).
