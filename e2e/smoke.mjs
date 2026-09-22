@@ -42,7 +42,9 @@ async function side(name, logs) {
   return { name, browser, page }
 }
 
-const call = (page, expr) => page.evaluate(`(() => { const h = window.${HANDLE}; return ${expr} })()`)
+// every game exposes its session on window.<handle>; `h` is the shared core (`.net`)
+const call = (page, expr) =>
+  page.evaluate(`(() => { const s = window.${HANDLE}; const h = s && s.net; return ${expr} })()`)
 
 async function until(page, expr, timeoutMs, what) {
   const t0 = Date.now()
@@ -74,26 +76,26 @@ try {
   for (const s of sides) await s.page.goto(link)
 
   const t0 = Date.now()
-  for (const s of sides) await until(s.page, `h && h.seats.length === ${PLAYERS}`, 30_000, `${s.name}: lobby never filled`)
+  for (const s of sides) await until(s.page, `h && h.players.length === ${PLAYERS}`, 30_000, `${s.name}: lobby never filled`)
   console.log(`PASS  lobby: all ${PLAYERS} present  (${((Date.now() - t0) / 1000).toFixed(1)}s)`)
 
   for (const s of sides) await call(s.page, 'h.setReady(true)')
   let host = null
   for (const s of sides) {
-    await until(s.page, 'h.seats.every((x) => x.ready)', 15_000, `${s.name}: ready flags never converged`)
+    await until(s.page, 'h.players.every((x) => x.ready)', 15_000, `${s.name}: ready flags never converged`)
     if (await call(s.page, 'h.isHost')) host = s
   }
   if (!host) throw new Error('no client believes it is host')
   await until(host.page, 'h.canStart', 10_000, 'host cannot start')
   await call(host.page, 'h.startGame()')
   const t1 = Date.now()
-  for (const s of sides) await until(s.page, 'h.playing', 20_000, `${s.name}: never reached the game`)
+  for (const s of sides) await until(s.page, 's.playing', 20_000, `${s.name}: never reached the game`)
   console.log(`PASS  start: host ${host.name}, all ${PLAYERS} playing  (${((Date.now() - t1) / 1000).toFixed(1)}s)`)
 
   const other = sides.find((s) => s !== host)
   await other.page.reload()
   const t2 = Date.now()
-  await until(other.page, 'h && h.playing && h.seat !== null', 25_000, `${other.name}: did not resume after reload`)
+  await until(other.page, 'h && s.playing && h.seat !== null', 25_000, `${other.name}: did not resume after reload`)
   const seatsAfter = await Promise.all(sides.map((s) => call(s.page, 'h.seat')))
   if (new Set(seatsAfter).size !== PLAYERS) throw new Error(`seats not distinct after reload: ${seatsAfter}`)
   console.log(`PASS  reload: ${other.name} resumed in seat ${seatsAfter[sides.indexOf(other)]}  (${((Date.now() - t2) / 1000).toFixed(1)}s)`)
