@@ -46,7 +46,7 @@ export const MONEY_RULES: Record<string, MoneyRule> = {
     minSeats: 2,
     maxSeats: 3,
   },
-  seotda: { table: { buyIns: [20000, 50000, 100000] }, trophies: { bet: 20 }, minMoves: 20, minSeats: 2, maxSeats: 5 },
+  seotda: { table: { buyIns: [20000, 50000, 100000] }, trophies: { bet: 20 }, minMoves: 12, minSeats: 2, maxSeats: 5 },
 }
 
 export const DAILY_CASH = 1000
