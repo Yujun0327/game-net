@@ -1,0 +1,23 @@
+{
+  "name": "@yujun/game-net",
+  "version": "0.1.0",
+  "description": "Shared multiplayer layer for the board-game sites: MQTT broadcast transport + stateless N-player beacon session",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts",
+    "./mesh": "./src/mesh.ts"
+  },
+  "files": ["src"],
+  "scripts": {
+    "test": "vitest run",
+    "check": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "mqtt": "^5.15.2"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.2",
+    "vitest": "^4.1.10"
+  }
+}
