@@ -8,4 +8,7 @@ export interface LedgerConfig {
   anonKey: string
 }
 
-export const LEDGER: LedgerConfig | null = null
+export const LEDGER: LedgerConfig | null = {
+  url: 'https://rcwudjlufgkkcdkolfdp.supabase.co',
+  anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJjd3Vkamx1Zmdra2Nka29sZmRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk4MDY4NTYsImV4cCI6MjEwNTM4Mjg1Nn0.wAhiz4oYgPAUKYtmxRz1uhVlhznHCKHMSTTxXj6t5W0',
+}

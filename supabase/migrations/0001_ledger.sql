@@ -178,12 +178,13 @@ begin
     values (v_game_id, v_app, v_mode, v_stake, v_seat_set, p_settlement)
     on conflict (game_id) do update set settlement = coalesce(settlements.settlement, excluded.settlement);
   select * into s from settlements where game_id = v_game_id;
+  -- a different result for the same game is a lie from somebody: refuse it even after settling
+  if s.seat_set <> v_seat_set or s.mode <> v_mode or s.stake <> v_stake or s.settlement <> p_settlement then
+    return query select 'mismatch'::text, null::bigint, null::integer; return;
+  end if;
   if s.status <> 'pending' then
     select * into r from players p where p.id = p_id;
     return query select s.status, r.balance, r.trophies; return;
-  end if;
-  if s.seat_set <> v_seat_set or s.mode <> v_mode or s.stake <> v_stake or s.settlement <> p_settlement then
-    return query select 'mismatch'::text, null::bigint, null::integer; return;
   end if;
 
   insert into attestations (game_id, player_id, sig) values (v_game_id, p_id, p_sig) on conflict do nothing;
