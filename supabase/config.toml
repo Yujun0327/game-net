@@ -1,0 +1,16 @@
+# Supabase CLI project config. `supabase link --project-ref <ref>` fills in the ref.
+project_id = "game-net"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+
+[db]
+port = 54322
+major_version = 17
+
+[functions.ledger]
+# The client sends the anon key as a Bearer token; requests are authenticated
+# by the Ed25519 signature inside the body, not by a user JWT.
+verify_jwt = false

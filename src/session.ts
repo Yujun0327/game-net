@@ -1,4 +1,4 @@
-import type { Beacon, GameSnapshot, Seat, WireGame, WireMove } from './protocol'
+import type { Attestation, Beacon, GameSnapshot, Seat, WireGame, WireMove } from './protocol'
 export type { GameSnapshot } from './protocol'
 import { localKV, type KV } from './storage'
 import { connectMqtt, type Broker, type Transport } from './transport'
@@ -33,6 +33,10 @@ export interface GameAdapter<Cfg, State, Move, Priv = undefined> {
    * game can swap sides or randomize. Default: lobby order, unchanged.
    */
   orderSeats?<P extends { key: string; name: string }>(players: P[], prev: GameSnapshot<Cfg, Move> | null): P[]
+  /** Seats that won a finished game (wallet settlements). Co-op: all or none. */
+  winners?(state: State): Seat[]
+  /** The stake this game was configured with (bet games), 0 or undefined for casual. */
+  stake?(cfg: Cfg): number
   /**
    * The seat a move by `seat` is recorded under, or null to reject it.
    * Default: only the current actor may move, as itself. Override to allow
@@ -64,6 +68,7 @@ export interface Peer {
   haveBase: number
   /** Their latest game-defined payload. */
   extra: unknown
+  attest: Attestation | null
 }
 
 export interface LobbyPlayer {
@@ -93,6 +98,7 @@ interface Saved<Cfg, Move, Priv> {
   snapshot: GameSnapshot<Cfg, Move>
   seat: Seat | null
   priv?: Priv
+  attest?: Attestation | null
 }
 
 const PEER_STALE_MS = 15_000
@@ -134,6 +140,8 @@ export class BeaconSession<Cfg, State, Move, Priv = undefined> {
   wantRematch = false
   /** Game-defined payload carried in our beacons (see `setExtra`). */
   extra: unknown = undefined
+  /** Our own wallet attestation for the current game (see `setAttest`). */
+  attest: Attestation | null = null
   status: Status = 'connecting'
   state: State
   priv: Priv | undefined
@@ -145,7 +153,7 @@ export class BeaconSession<Cfg, State, Move, Priv = undefined> {
   private hostRoster: string[] | null = null
   private rosterFrom: string | null = null
 
-  private readonly adapter: GameAdapter<Cfg, State, Move, Priv>
+  readonly adapter: GameAdapter<Cfg, State, Move, Priv>
   private readonly transport: Transport<Beacon<Cfg, Move>>
   private readonly kv: KV
   private readonly now: () => number
@@ -318,6 +326,28 @@ export class BeaconSession<Cfg, State, Move, Priv = undefined> {
     this.notify()
   }
 
+  /** Record our signature for the current game; persisted so a reload rebroadcasts it. */
+  setAttest(attest: Attestation | null): void {
+    this.attest = attest
+    this.persist()
+    this.sendBeacon()
+    this.notify()
+  }
+
+  /** Every seat's attestation of `kind` for the current game, ours included. */
+  attestations(kind: Attestation['kind']): Record<string, string> {
+    const out: Record<string, string> = {}
+    const gameId = this.snapshot?.gameId
+    if (!gameId) return out
+    if (this.attest?.gameId === gameId && this.attest.kind === kind) out[this.myKey] = this.attest.sig
+    for (const p of this.peers.values()) {
+      if (p.attest?.gameId === gameId && p.attest.kind === kind && this.snapshot!.seats[p.key] !== undefined) {
+        out[p.key] = p.attest.sig
+      }
+    }
+    return out
+  }
+
   /** Live peers (beacon heard recently), in arrival order. */
   get livePeers(): Peer[] {
     return [...this.peers.values()].filter((p) => this.isLive(p)).sort((a, b) => a.firstSeen - b.firstSeen)
@@ -453,6 +483,7 @@ export class BeaconSession<Cfg, State, Move, Priv = undefined> {
       wantRematch: this.wantRematch,
       roster: !this.started && this.isHost ? (this.hostRoster = this.ownRoster()) : null,
       extra: this.extra,
+      attest: this.attest ? { gameId: this.attest.gameId, kind: this.attest.kind, sig: this.attest.sig } : null,
       game: this.snapshot ? this.wireGame(this.snapshot) : null,
     })
   }
@@ -488,6 +519,7 @@ export class BeaconSession<Cfg, State, Move, Priv = undefined> {
       haveSeq: b.game?.logLen ?? 0,
       haveBase: b.game?.logBase ?? 0,
       extra: b.extra,
+      attest: b.attest ?? null,
     }
     this.peers.set(b.key, peer)
     if (!prev || !wasLive) {
@@ -589,11 +621,12 @@ export class BeaconSession<Cfg, State, Move, Priv = undefined> {
   }
 
   /** Take a snapshot as our game (host after creating, guest on receipt). */
-  private adopt(snap: GameSnapshot<Cfg, Move>, priv?: Priv): void {
+  private adopt(snap: GameSnapshot<Cfg, Move>, priv?: Priv, attest: Attestation | null = null): void {
     this.snapshot = { ...snap, log: [] }
     this.seat = snap.seats[this.myKey] ?? null
     this.wantRematch = false
     this.ready = false
+    this.attest = attest?.gameId === snap.gameId ? attest : null
     const made = this.adapter.create(snap.cfg, this.seat, priv)
     this.state = made.state
     this.priv = made.priv
@@ -625,7 +658,7 @@ export class BeaconSession<Cfg, State, Move, Priv = undefined> {
 
   private persist(): void {
     if (!this.snapshot) return
-    const saved: Saved<Cfg, Move, Priv> = { snapshot: this.snapshot, seat: this.seat, priv: this.priv }
+    const saved: Saved<Cfg, Move, Priv> = { snapshot: this.snapshot, seat: this.seat, priv: this.priv, attest: this.attest }
     this.kv.set(this.storageKey(), JSON.stringify(saved))
   }
 
@@ -635,7 +668,7 @@ export class BeaconSession<Cfg, State, Move, Priv = undefined> {
     try {
       const saved = JSON.parse(raw) as Saved<Cfg, Move, Priv>
       if (!saved?.snapshot?.gameId || !Array.isArray(saved.snapshot.log)) return
-      this.adopt(saved.snapshot, saved.priv)
+      this.adopt(saved.snapshot, saved.priv, saved.attest ?? null)
       this.log(`restored game ${saved.snapshot.gameId} at move ${saved.snapshot.log.length}`)
     } catch (err) {
       this.log(`saved game unusable (${String(err)})`)

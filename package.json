@@ -1,21 +1,25 @@
 {
   "name": "@yujun/game-net",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Shared multiplayer layer for the board-game sites: MQTT broadcast transport + stateless N-player beacon session",
   "type": "module",
   "license": "MIT",
   "exports": {
     ".": "./src/index.ts",
-    "./mesh": "./src/mesh.ts"
+    "./mesh": "./src/mesh.ts",
+    "./wallet": "./src/wallet-index.ts"
   },
   "files": [
     "src"
   ],
   "scripts": {
-    "test": "vitest run",
-    "check": "tsc -p tsconfig.json"
+    "test": "node scripts/sync-shared.mjs && vitest run",
+    "check": "tsc -p tsconfig.json",
+    "sync-shared": "node scripts/sync-shared.mjs"
   },
   "dependencies": {
+    "@noble/ed25519": "^2.3.0",
+    "@noble/hashes": "^1.8.0",
     "mqtt": "^5.15.2"
   },
   "devDependencies": {

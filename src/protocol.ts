@@ -50,5 +50,15 @@ export interface Beacon<Cfg, Move> {
   roster: string[] | null
   /** Game-defined payload (lobby options, chat…) merged by the game, not the core. */
   extra: unknown
+  /** This client's own signature over the current game's lock or settlement (wallet). */
+  attest: Attestation | null
   game: WireGame<Cfg, Move> | null
+}
+
+export interface Attestation {
+  gameId: string
+  kind: 'lock' | 'settle'
+  sig: string
+  /** Has the ledger acknowledged it (local bookkeeping, not on the wire)? */
+  posted?: boolean
 }

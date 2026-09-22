@@ -1,4 +1,4 @@
-export type { Beacon, GameSnapshot, Seat, WireGame, WireMove } from './protocol'
+export type { Attestation, Beacon, GameSnapshot, Seat, WireGame, WireMove } from './protocol'
 export { BeaconSession } from './session'
 export type { GameAdapter, LobbyPlayer, Peer, SessionOptions, Status } from './session'
 export { localKV, memoryKV, loadPlayerName, playerKey, savePlayerName } from './storage'

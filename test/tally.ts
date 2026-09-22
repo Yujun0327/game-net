@@ -47,4 +47,8 @@ export const tally: GameAdapter<Cfg, State, Move, string> = {
   actor: (s) => s.turn,
   isOver: (s) => s.over,
   actorFor: (s, seat, move) => ('concede' in move ? seat : s.turn === seat ? seat : null),
+  winners: (s) => {
+    const best = Math.max(...s.totals)
+    return s.totals.map((t, i) => (t === best ? i : -1)).filter((i) => i >= 0)
+  },
 }

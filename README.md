@@ -50,3 +50,25 @@ Credentials in a static site are public — use a broker you are happy to expose
 
 Topics on public brokers are world-readable. Only public game state goes on the wire; per-seat
 secrets stay in the adapter's `priv` and never leave the client.
+
+## Wallet (`@yujun/game-net/wallet`)
+
+Platform-wide identity + hosted ledger, added 2026-09. Gameplay stays P2P; only three
+moments touch the server: `hello` (name), `claim` (1,000/day, KST), and settlement.
+
+- `identity.ts` — one Ed25519 keypair per browser (`yujungame:identity`), the public key is
+  the player id everywhere. `exportSeed`/`importSeed` = the link code between devices.
+- `canonical.ts` — sorted-key JSON; signatures are over `<domain>\n<canonical>`.
+- `money.ts` — THE rules table (`MONEY_RULES`, `DAILY_CASH`, `CAPS`) and `computeDeltas`.
+  Shared with the Edge Function via `npm run sync-shared` (the test suite checks the copies).
+- `wallet.ts` — `WalletSession` attaches to a `BeaconSession`: locks the stake when a bet game
+  starts, signs + posts its own settlement when the game ends, polls until settled.
+- `supabase/` — migration (tables, RLS, SQL functions) and the `ledger` Edge Function.
+
+Flow: every seat posts only its own signature; the ledger applies the deltas once all seats have
+spoken (one transaction, advisory lock per game). Threat model: casual cheating by friends. A
+modified client cannot invent a result because honest peers only sign what they computed; self-play
+is bounded by `CAPS`, not proofs.
+
+Deploy: `supabase link --project-ref <ref> && supabase db push && supabase functions deploy ledger`,
+then put the project URL + anon key in `src/ledger-config.ts`.
