@@ -1,6 +1,6 @@
 {
   "name": "@yujun/game-net",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Shared multiplayer layer for the board-game sites: MQTT broadcast transport + stateless N-player beacon session",
   "type": "module",
   "license": "MIT",
